@@ -9,7 +9,8 @@ on:
 
 env:
   BUILD_NAME: web_export
-  GODOT_VERSION_STATUS:
+  GODOT_VERSION_STATUS: stable
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 jobs:
   build-ubuntu-editor:
@@ -44,8 +45,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libx11-dev libxcursor-dev \
             libxinerama-dev libgl1-mesa-dev libglu-dev libasound2-dev libpulse-dev \
-            libdbus-1-dev libudev-dev libxi-dev libxrandr-dev
+            libdbus-1-dev libudev-dev libxi-dev libxrandr-dev ccache
 
+      - name: Setup Cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/SCSub', '**/config.py') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ github.job }}-
+      
       - name: Build Editor (Linux)
         run: scons -C godot ${{ env.SCONS_FLAGS }}
 
@@ -67,7 +76,6 @@ jobs:
             godot/bin/glue/**
 
 
-  # Must build export templates on Linux due to the "command line too long" error on windows.
   build-export-template-release:
     runs-on: ubuntu-latest
 
@@ -89,6 +97,17 @@ jobs:
 
       - name: Set Up Dependencies
         uses: ./.github/actions/web-template-deps
+
+      - name: Setup Cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/SCSub', '**/config.py') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ github.job }}-
+      
+      - name: Install ccache
+        run: sudo apt-get install -y ccache
 
       - name: Build Web Template (Release)
         run: scons -C godot platform=web target=template_release module_mono_enabled=yes ${{ env.SCONS_FLAGS }}
@@ -125,6 +144,17 @@ jobs:
 
       - name: Set Up Dependencies
         uses: ./.github/actions/web-template-deps
+
+      - name: Setup Cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/SCSub', '**/config.py') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ github.job }}-
+      
+      - name: Install ccache
+        run: sudo apt-get install -y ccache
 
       - name: Build Web Template (Debug)
         run: scons -C godot platform=web target=template_debug module_mono_enabled=yes ${{ env.SCONS_FLAGS }}
@@ -185,9 +215,14 @@ jobs:
           mv godot/bin/nuget $filename
           mv godot/bin/godot.web.template_release.wasm32.mono.zip ${filename}/web_release.zip
           mv godot/bin/godot.web.template_debug.wasm32.mono.zip ${filename}/web_debug.zip
-          mv Program.cs $filename
-          mv global.json $filename
-          mv README.md $filename
+
+          for extra_file in Program.cs global.json README.md; do
+            if [ -f "$extra_file" ]; then
+              mv "$extra_file" "$filename/"
+            else
+              echo "Note: $extra_file not found, skipping."
+            fi
+          done
 
           # Save the output for use in other steps
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -226,6 +261,9 @@ jobs:
           EOF
           chmod +x $sh_filename
 
+      - name: Install 7zip
+        run: sudo apt-get install -y p7zip-full
+      
       - name: Create Zip File
         run: 7z a ${{ steps.prepare.outputs.filename }}.zip ${{ steps.prepare.outputs.filename }} -r -mm=Deflate64 -mx=9 -bb
 
