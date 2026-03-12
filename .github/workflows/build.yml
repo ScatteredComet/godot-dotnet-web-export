@@ -14,17 +14,18 @@ env:
 
 jobs:
   build-ubuntu-editor:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     env:
       SCONS_FLAGS: >-
-        platform=linuxbsd
-        target=editor
         module_mono_enabled=yes
         optimize=speed
         lto=full
-        production=yes
         use_cache=yes
+
+        platform=linuxbsd
+        target=editor
+        production=yes
 
     steps:
       - name: Checkout Repository
@@ -83,20 +84,21 @@ jobs:
 
 
   build-export-template-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     needs: build-ubuntu-editor
 
     env:
       SCONS_FLAGS: >-
+        module_mono_enabled=yes
         optimize=speed
         lto=full
-        ccflags="-DNDEBUG"
-        linkflags="-sMALLOC=mimalloc"
+        use_cache=yes
+
         platform=web
         target=template_release
-        module_mono_enabled=yes
-        use_cache=yes
+        ccflags="-DNDEBUG"
+        linkflags="-sMALLOC=mimalloc"
 
     steps:
       - name: Checkout Repository
@@ -130,21 +132,22 @@ jobs:
 
 
   build-export-template-debug:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     needs: build-ubuntu-editor
 
     env:
       # Different build settings due to memory limitations of the standard github runner
       SCONS_FLAGS: >-
+        module_mono_enabled=yes
         optimize=speed
         lto=thin
-        ccflags="-DNDEBUG"
-        linkflags="-sMALLOC=mimalloc"
+        use_cache=yes
+
         platform=web
         target=template_debug
-        module_mono_enabled=yes
-        use_cache=yes
+        ccflags="-DNDEBUG"
+        linkflags="-sMALLOC=mimalloc"
 
     steps:
       - name: Checkout Repository
@@ -175,7 +178,7 @@ jobs:
 
 
   build-final-zip:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     needs: [build-ubuntu-editor, build-export-template-release, build-export-template-debug]
 
@@ -280,7 +283,7 @@ jobs:
 
 
   upload-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     needs: build-final-zip
 
