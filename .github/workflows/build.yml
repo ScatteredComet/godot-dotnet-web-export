@@ -22,7 +22,6 @@ jobs:
         optimize=speed
         lto=full
         use_cache=yes
-
         platform=linuxbsd
         target=editor
         production=yes
@@ -65,6 +64,11 @@ jobs:
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
 
+      - name: Debug Cache
+        run: |
+          ccache -s
+          ls -R ${{ github.workspace }}/.ccache
+
       - name: Generate Mono Glue
         run: ./godot/bin/godot.linuxbsd.editor.x86_64.mono --headless --quit --generate-mono-glue godot/bin/glue
 
@@ -94,7 +98,6 @@ jobs:
         optimize=speed
         lto=full
         use_cache=yes
-
         platform=web
         target=template_release
         ccflags="-DNDEBUG"
@@ -141,9 +144,8 @@ jobs:
       SCONS_FLAGS: >-
         module_mono_enabled=yes
         optimize=speed
-        lto=thin
+        lto=full
         use_cache=yes
-
         platform=web
         target=template_debug
         ccflags="-DNDEBUG"
