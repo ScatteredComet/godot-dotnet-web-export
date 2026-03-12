@@ -102,6 +102,7 @@ jobs:
         target=template_release
         ccflags="-DNDEBUG"
         linkflags="-sMALLOC=mimalloc"
+        use_closure_compiler=yes
 
     steps:
       - name: Checkout Repository
@@ -144,7 +145,7 @@ jobs:
       SCONS_FLAGS: >-
         module_mono_enabled=yes
         optimize=speed
-        lto=full
+        lto=thin
         use_cache=yes
         platform=web
         target=template_debug
