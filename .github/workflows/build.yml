@@ -1,19 +1,28 @@
 name: Build
 
-on: workflow_dispatch
+on:
+  push:
+    branches:
+    - linux-build # for testing
+  
+  workflow_dispatch:
 
 env:
   BUILD_NAME: web_export
   GODOT_VERSION_STATUS:
 
 jobs:
-  build-windows-editor:
-    runs-on: windows-latest
+  build-ubuntu-editor:
+    runs-on: ubuntu-latest
 
     env:
       SCONS_FLAGS: >-
-        ccflags="/O2 /Ob3 /GL /sdl- /GS- /arch:SSE4.2 /MP /DNDEBUG"
-        linkflags="/LTCG /OPT:REF /OPT:ICF"
+        platform=linuxbsd
+        target=editor
+        module_mono_enabled=yes
+        optimize=speed
+        lto=full
+        production=yes
 
     steps:
       - name: Checkout Repository
@@ -30,35 +39,39 @@ jobs:
       - name: Set Up SCons
         run: pip install scons
 
-      - name: Set Up Direct3D 12 SDK
-        run: python godot\misc\scripts\install_d3d12_sdk_windows.py
+      - name: Install Linux Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxcursor-dev \
+            libxinerama-dev libgl1-mesa-dev libglu-dev libasound2-dev libpulse-dev \
+            libdbus-1-dev libudev-dev libxi-dev libxrandr-dev
 
-      - name: Build Editor (Windows)
-        run: scons -C godot target=editor module_mono_enabled=yes ${{ env.SCONS_FLAGS }}
+      - name: Build Editor (Linux)
+        run: scons -C godot ${{ env.SCONS_FLAGS }}
 
       - name: Generate Mono Glue
-        run: cmd /c "godot\bin\godot.windows.editor.x86_64.mono --headless --quit --generate-mono-glue godot\bin\glue"
+        run: ./godot/bin/godot.linuxbsd.editor.x86_64.mono --headless --quit --generate-mono-glue godot/bin/glue
 
       - name: Save Version Text File
         run: |
-          cmd /c "godot\bin\godot.windows.editor.x86_64.mono --headless --quit --version > godot\bin\version.txt"
-          type godot\bin\version.txt
+          ./godot/bin/godot.linuxbsd.editor.x86_64.mono --headless --quit --version > godot/bin/version.txt
+          cat godot/bin/version.txt
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: godot.windows.mono.${{ env.BUILD_NAME }}.editor
+          name: godot.linuxbsd.mono.${{ env.BUILD_NAME }}.editor
           path: |
-            godot\bin\*.exe
-            godot\bin\version.txt
-            godot\bin\glue\**
+            godot/bin/godot.linuxbsd*
+            godot/bin/version.txt
+            godot/bin/glue/**
 
 
   # Must build export templates on Linux due to the "command line too long" error on windows.
   build-export-template-release:
     runs-on: ubuntu-latest
 
-    needs: build-windows-editor
+    needs: build-ubuntu-editor
 
     env:
       SCONS_FLAGS: >-
@@ -83,7 +96,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: godot.windows.mono.${{ env.BUILD_NAME }}.template_release
+          name: godot.linuxbsd.mono.${{ env.BUILD_NAME }}.template_release
           path: |
             godot/bin/godot.web.template_release.wasm32.mono.zip
             godot/bin/GodotSharp/**
@@ -93,7 +106,7 @@ jobs:
   build-export-template-debug:
     runs-on: ubuntu-latest
 
-    needs: build-windows-editor
+    needs: build-ubuntu-editor
 
     env:
       # Different build settings due to memory limitations of the standard github runner
@@ -119,14 +132,14 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: godot.windows.mono.${{ env.BUILD_NAME }}.template_debug
+          name: godot.linuxbsd.mono.${{ env.BUILD_NAME }}.template_debug
           path: godot/bin/godot.web.template_debug.wasm32.mono.zip
 
 
   build-final-zip:
     runs-on: ubuntu-latest
 
-    needs: [build-export-template-release, build-export-template-debug]
+    needs: [build-ubuntu-editor, build-export-template-release, build-export-template-debug]
 
     outputs:
       version: ${{ steps.prepare.outputs.version }}
@@ -163,12 +176,11 @@ jobs:
           hash=${BASH_REMATCH[5]}
 
           # Get a filename matching official Godot releases, e.g.: Godot_v4.6.1-stable_mono_web_export_win64
-          filename=Godot_v${version}-${status}_${mono//./_}${build_name//./_}_win64
+          filename=Godot_v${version}-${status}_${mono//./_}${build_name//./_}_linux_x86_64
 
           # Move the files to a folder
           mkdir $filename
-          mv godot/bin/godot.windows.editor.x86_64.mono.exe ${filename}/${filename}.exe
-          mv godot/bin/godot.windows.editor.x86_64.mono.console.exe ${filename}/${filename}_console.exe
+          mv godot/bin/godot.linuxbsd.editor.x86_64.mono ${filename}/${filename}.x86_64
           mv godot/bin/GodotSharp $filename
           mv godot/bin/nuget $filename
           mv godot/bin/godot.web.template_release.wasm32.mono.zip ${filename}/web_release.zip
@@ -184,51 +196,35 @@ jobs:
           echo "hash=${hash}" >> "$GITHUB_OUTPUT"
           echo "filename=${filename}" >> "$GITHUB_OUTPUT"
 
-      - name: Create Install Batch File
+      - name: Create Install Shell Script
         run: |
-          batch_filename=${{ steps.prepare.outputs.filename }}/install.bat
-          cat > $batch_filename << 'EOF'
-          @echo off
+          sh_filename=${{ steps.prepare.outputs.filename }}/install.sh
+          cat > $sh_filename << 'EOF'
+          #!/bin/bash
+          set -e
+          echo "Installing web export templates for Linux..."
 
-          echo Installing web export files for '${{ steps.prepare.outputs.filename }}'...
-          echo:
+          TEMPLATE_FOLDER="$HOME/.local/share/godot/export_templates/${{ steps.prepare.outputs.version }}.${{ steps.prepare.outputs.status }}.mono"
+          NUGET_FOLDER="$HOME/.nuget/nuget"
 
-          set TEMPLATE_FOLDER=%AppData%\Godot\export_templates\${{ steps.prepare.outputs.version }}.${{ steps.prepare.outputs.status }}.mono
-          set NUGET_FOLDER=%AppData%\NuGet\nuget
+          mkdir -p "$TEMPLATE_FOLDER"
+          cp "web_release.zip" "$TEMPLATE_FOLDER/"
+          cp "web_debug.zip" "$TEMPLATE_FOLDER/"
 
-          echo Moving export templates to '%TEMPLATE_FOLDER%'...
+          echo "Setting up NuGet source..."
+          mkdir -p "$NUGET_FOLDER"
+          cp -r "nuget/." "$NUGET_FOLDER/"
+          dotnet nuget add source "$NUGET_FOLDER" --name GodotLocalSource || true
 
-          md "%TEMPLATE_FOLDER%"
-          move /y "%~dp0web_release.zip" "%TEMPLATE_FOLDER%"
-          move /y "%~dp0web_debug.zip" "%TEMPLATE_FOLDER%"
-
-          echo:
-          echo Attempting to add NuGet source...
-
-          dotnet nuget add source "%NUGET_FOLDER%" --name NugetSource
-
-          echo:
-          echo Moving NuGet packages to '%NUGET_FOLDER%'...
-
-          md "%NUGET_FOLDER%"
-          move /y "%~dp0nuget\*" "%NUGET_FOLDER%"
-          rd "%~dp0nuget"
-
-          echo:
-          echo Attempting to install wasm-tools...
-
-          ren "%~dp0global.json" global.json.disabled
+          echo "Setting up WASM tools..."
+          [ -f global.json ] && mv global.json global.json.disabled
           dotnet workload install wasm-tools
+          [ -f global.json.disabled ] && mv global.json.disabled global.json
 
-          ren "%~dp0global.json.disabled" global.json
-          dotnet workload install wasm-tools
-
-          echo:
-          echo Installation complete!
-          echo Use the included '${{ steps.prepare.outputs.filename }}.exe' to open your project and export for the web.
-
-          pause
+          chmod +x "./${{ steps.prepare.outputs.filename }}.x86_64"
+          echo "Installation complete."
           EOF
+          chmod +x $sh_filename
 
       - name: Create Zip File
         run: 7z a ${{ steps.prepare.outputs.filename }}.zip ${{ steps.prepare.outputs.filename }} -r -mm=Deflate64 -mx=9 -bb
@@ -259,7 +255,7 @@ jobs:
           target_commitish: ${{ github.ref }}
           prerelease: ${{ needs.build-final-zip.outputs.status != 'stable' }}
           body: >-
-            Windows build of [Godot Engine](https://godotengine.org/)
+            Linux build of [Godot Engine](https://godotengine.org/)
             ${{ needs.build-final-zip.outputs.version }}-${{ needs.build-final-zip.outputs.status }}
             with experimental support for exporting C# projects to the web.
 
@@ -268,7 +264,7 @@ jobs:
 
             1. Extract the zip file.
 
-            2. Run the included `install.bat`.
+            2. Run the included `install.sh`.
 
             3. Change your Godot project's `.csproj` `TargetFramework` to `net9.0`, i.e., `<TargetFramework>net9.0</TargetFramework>`.
 
