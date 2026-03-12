@@ -274,8 +274,11 @@ jobs:
           EOF
           chmod +x $sh_filename
       
-      - name: Create Tarball File
-        run: tar -cJf ${{ steps.prepare.outputs.filename }}.tar.xz ${{ steps.prepare.outputs.filename }}
+      - name: Install 7zip
+        run: sudo apt-get install -y p7zip-full
+      
+      - name: Create Zip File
+        run: 7z a ${{ steps.prepare.outputs.filename }}.zip ${{ steps.prepare.outputs.filename }} -r -mm=Deflate64 -mx=9 -bb
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
